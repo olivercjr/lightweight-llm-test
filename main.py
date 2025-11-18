@@ -37,7 +37,7 @@ def chatbot():
 
 	# end program
 	print("\n---CHAT ENDS HERE---")
-	# print(f"###SYSTEM PROMPT###\n{system_prompt}\n###########\n{pretty_chat}")
+	# print(f"####SYSTEM PROMPT####\n{system_prompt}\n###########\n{pretty_chat}")
 	print(full_prompt)
 
 
