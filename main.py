@@ -35,7 +35,7 @@ def chatbot(model_temp: float = 0.7):
 		# Gemma 3 Chat formatting
 		system_prompt = Path("prompts/system prompt.txt").read_text(encoding="utf-8")
 		full_prompt = f"<start_of_turn>system\n{system_prompt}\n<end_of_turn>\n{chat_history}"
-		response = gemma_3_4b(prompt=full_prompt, max_tokens=200, stop=["<end_of_turn>"], temperature=0.6)
+		response = gemma_3_4b(prompt=full_prompt, max_tokens=200, stop=["<end_of_turn>"], temperature=model_temp)
 		response_str = response['choices'][0]['text']
 		chat_history += f"{response_str}\n<end_of_turn>\n" #
 		pretty_chat += f"\nAssistant: {response_str}"
@@ -59,21 +59,20 @@ def ddg_search(query: str, max_results: int):
 			href = r.get("href")
 			title = r.get("title")
 			body = r.get("body")
+			# origin = r.get("origin")
 
 			if href and title and body:
 				return_list.append({
 					"href": href,
 					"title": title,
-					"body": body
+					"body": body,
+					# "origin": origin
 				})
 		
 		return return_list
 	
 def check_web_results(raw_results: list, query: str, model_temp: float=0.6):
-	# llm = Llama(model_path=os.getenv("MODEL_PATH"), n_ctx=4096)
-	gbnf_text = Path("file bin/grammar web results checker.txt").read_text(encoding="utf-8")
 	prompt = "<start_of_turn>system\n" + Path("prompts/system web results checker instructions.txt").read_text(encoding="utf-8") + "\n" + query + "\n\n---\n\n### UNRANKED WEB RESULTS\n"
-	# grammar = LlamaGrammar.from_string(gbnf_text)
 
 	for idx, dict in enumerate(raw_results, start=1):
 		prompt += f"INDEX: {idx}\n"
@@ -87,15 +86,61 @@ def check_web_results(raw_results: list, query: str, model_temp: float=0.6):
 	response_str = response['choices'][0]['text']
 
 	#print(f"{prompt}\n\n######MODEL RESOPNSE##############\n{response}")
-	print("###### RESPONSE ########\n\n")
+	print("\n\n###### WEB CHECKER RESPONSE ########\n\n")
 	print(f"\n\n\n{response_str}\n\n\n")
-	print("###### PROMPT ########\n\n")
-	print(prompt)
+	# print("###### PROMPT ########\n\n")
+	# print(prompt)
 
 	return response_str
 
-def parse_page_content():
-	pass
+def read_page_content(url: str):
+
+	headers = {
+		"User-Agent": os.getenv("USER_AGENT"),
+		"Accept": os.getenv("ACCEPT"),
+		"Accept-Language": os.getenv("ACCEPT_LANGUAGE"),
+		"Referer": os.getenv("REFERER"),
+		"Connection": os.getenv("CONNECTION"),
+		"Upgrade-Insecure-Requests": os.getenv("UPGRADE_INSECURE_REQUESTS")
+	}
+
+	# Fetch the page
+	try:
+		http_resp = requests.get(url, timeout=10, headers=headers)
+		http_resp.raise_for_status()   # Raises an error if the request failed
+	except requests.exceptions.HTTPError as e:
+		print("HTTP error:", e, "status:", e.response.status_code)
+	except requests.exceptions.RequestException as e:
+		print("Network error or timeout:", e)
+	else:
+		# runs only if the request succeeded
+		print("status", http_resp.status_code)
+	finally:
+		print("done (cleanup if needed)")
+
+	# Parse HTML with BeautifulSoup
+	soup = BeautifulSoup(markup=http_resp.text, features="html.parser")
+
+	# Extract text
+	elements = soup.select("h1, h2, h3, h4, h5, h6, p")
+	full_text = ""
+
+	for elmnt in elements:
+		raw_text = elmnt.get_text(separator='\n', strip=True)
+		clean_text = ' '.join(raw_text.split())
+
+		match elmnt.name:
+			case "h1":
+				full_text += f"\n***{clean_text}***\n"
+			case "h2":
+				full_text += f"\n**{clean_text}**\n"
+			case "h3" | "h4" | "h5" | "h6":
+				full_text += f"\n*{clean_text}*\n"
+			case "p":
+				full_text += f"{clean_text}\n"
+
+
+	print(full_text)
 		
 		
 
@@ -108,12 +153,28 @@ def input_test():
 if __name__ == "__main__":
 	# chatbot(model_temp=0.6)
 
-	print("### START QUERY TEST ###")
+	print("\n\n### START QUERY TEST ###")
 	user_query = input(f"\n### QUERY: \n")
 	# print("### ANSWER")
 
-	list = ddg_search(query=user_query, max_results=15)
-	ranked_json = check_web_results(raw_results=list, query=user_query, model_temp=0.6)
+	results_list = ddg_search(query=user_query, max_results=15)
+	ranked_json = check_web_results(raw_results=results_list, query=user_query, model_temp=0.6)
+	ranked_json = ranked_json.replace("```", "") # smh
+	ranked_json = ranked_json.replace("json", "") # I need money to buy a setup I can finetune on to avoid shit like this smh
+	ranked_json = ranked_json.strip() # You should see the system prompt. It's disgusting.
 	ranked_object = json.loads(ranked_json)
-	# create page content parser
 
+	print("\n\n### BEAUTIFUL SOUP #####################################\n")
+	print("\n### ARTICLE 1 #######################")
+	print(f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("href")}")
+	# print(f"\nORIGIN: {results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("origin")}\n")
+	read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("href"))
+	print("\n### ARTICLE 2 #######################")
+	print(f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("href")}")
+	# print(f"\nORIGIN: {results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("origin")}\n")
+	read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("href"))
+	print("\n### ARTICLE 3 #######################")
+	print(f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("href")}")
+	# print(f"\nORIGIN: {results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("origin")}\n")
+	read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("href"))
+	
