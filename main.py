@@ -5,6 +5,7 @@ from ddgs import DDGS
 from bs4 import BeautifulSoup
 import requests
 import json
+import re
 
 import os
 
@@ -93,6 +94,12 @@ def check_web_results(raw_results: list, query: str, model_temp: float=0.6):
 
 	return response_str
 
+def clean_string(raw_text: str):
+	no_brackets = re.sub(pattern=r'\[\s*\d+\s*\]',repl='', string=raw_text) # Remove all numbers in square brackets
+	clean_text = re.sub(pattern=r'\s+', repl=' ', string=no_brackets).strip() # replace multiple spaces with a single space
+	return clean_text
+
+
 def read_page_content(url: str):
 
 	headers = {
@@ -120,16 +127,67 @@ def read_page_content(url: str):
 
 	# Parse HTML with BeautifulSoup
 	soup = BeautifulSoup(markup=http_resp.text, features="html.parser")
+	##########################################################
+	# # Find main content
+	# main_selectors = [
+	# 	"main", "article", "[role=main]",
+	# 	"div#content", "div#main",
+	# 	"div.content", "div.main-content",
+	# ]
+
+	# content = None
+	# for sel in main_selectors:
+	# 	content = soup.select_one(selector=sel)
+	# 	if content:
+	# 		break
+
+	# if not content:
+	# 	content = soup.body or soup
+
+	# # Remove universal junk
+	# for sel in ["nav", "header", "footer", "aside", "script", "style", "noscript"]:
+	# 	for tag in content.select(sel):
+	# 		tag.decompose()
+
+	
+
+	# for kw in junk_keywords:
+	# 	for tag in content.select(f"[class*='{kw}'], [id*='{kw}']"):
+	# 		tag.decompose()
+	##########################################################
 
 	# Extract text
-	elements = soup.select("h1, h2, h3, h4, h5, h6, p")
+	elements = soup.select("h1, h2, h3, h4, h5, h6, p, ul, ol, table, br")
 	full_text = ""
+	clean_text = ""
+	
+	junk_keywords = [
+		"sidebar", "widget", "advert", "ad-", "promo", "sponsor", "related",
+		"post-nav", "pagination", "footer", "menu", "nav", "share", "comment",
+		"header"
+	]
 
 	for elmnt in elements:
-		raw_text = elmnt.get_text(separator='\n', strip=True)
-		clean_text = ' '.join(raw_text.split())
+		if (elmnt.name in ["h1", "h2", "h3", "h4", "h5", "h6"]):
+			continue # skip headings that are links
+		
+		if (elmnt.name not in ["ul", "ol", "table"]):
+			clean_text = clean_string(elmnt.get_text(separator='\n', strip=True))
+
+		if (elmnt.name in ["header", "footer", "nav"]): continue
+
+
+		# Skip if any parent has a junk keyword in class or id
+		if any(
+			any(kw in (classname or "") for kw in junk_keywords) for classname in elmnt.get('class', [])
+		):
+			continue
+
+		
 
 		match elmnt.name:
+			case "br":
+				full_text += "\n"
 			case "h1":
 				full_text += f"\n***{clean_text}***\n"
 			case "h2":
@@ -138,11 +196,40 @@ def read_page_content(url: str):
 				full_text += f"\n*{clean_text}*\n"
 			case "p":
 				full_text += f"{clean_text}\n"
-
+			case "ul": # unordered lists
+				if elmnt.find("li"):
+					clean_li_text = ""
+					li_items = elmnt.find_all("li", recursive=False)
+					for item in li_items:
+						raw_li_text = item.get_text(separator='\n', strip=True)
+						clean_li_text = clean_string(raw_li_text)
+						full_text += f"\n	- {clean_li_text}"
+					full_text += f"\n\n"
+			case "ol": # unordered lists
+				if elmnt.find("li"):
+					clean_li_text = ""
+					li_items = elmnt.find_all("li", recursive=False)
+					for num, item in enumerate(li_items, start=1):
+						raw_li_text = item.get_text(separator='\n', strip=True)
+						clean_li_text = clean_string(raw_li_text)
+						full_text += f"\n	{num}. {clean_li_text}"
+					full_text += f"\n\n"
 
 	print(full_text)
+	return full_text
+
+	
 		
-		
+def write_search_articles_to_file(doc_string: str):
+	# Count only files (ignore subdirectories)
+	direc = "file bin/scraped articles"
+	file_count: int = 0
+	for f in (os.listdir(direc)): file_count += 1
+	file_path = direc+"/"+f"article {file_count+1}.txt"
+
+	with open(file_path, mode="w", encoding="utf-8") as f:
+		f.write(doc_string)
+
 
 def input_test():
 	user_msg = input(f"\n{os.getenv("USER_NAME")}: ")
@@ -153,9 +240,7 @@ def input_test():
 if __name__ == "__main__":
 	# chatbot(model_temp=0.6)
 
-	print("\n\n### START QUERY TEST ###")
 	user_query = input(f"\n### QUERY: \n")
-	# print("### ANSWER")
 
 	results_list = ddg_search(query=user_query, max_results=15)
 	ranked_json = check_web_results(raw_results=results_list, query=user_query, model_temp=0.6)
@@ -164,17 +249,35 @@ if __name__ == "__main__":
 	ranked_json = ranked_json.strip() # You should see the system prompt. It's disgusting.
 	ranked_object = json.loads(ranked_json)
 
-	print("\n\n### BEAUTIFUL SOUP #####################################\n")
-	print("\n### ARTICLE 1 #######################")
-	print(f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("href")}")
-	# print(f"\nORIGIN: {results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("origin")}\n")
-	read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("href"))
-	print("\n### ARTICLE 2 #######################")
-	print(f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("href")}")
-	# print(f"\nORIGIN: {results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("origin")}\n")
-	read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("href"))
-	print("\n### ARTICLE 3 #######################")
-	print(f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("href")}")
-	# print(f"\nORIGIN: {results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("origin")}\n")
-	read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("href"))
+	doc_string = "### USER QUERY #################################################################################\n"
+	doc_string += user_query
+
+	doc_string += "\n\n### RAW DDG SEARCH RESULTS ###################################################################\n"
+	for i, result in enumerate(results_list):
+		doc_string += f"\n/// RESULT {i+1} ////////////////////////"
+		doc_string += f"\nURL: {results_list[i].get("href")}"
+		doc_string += f"\nTITLE: {results_list[i].get("title")}"
+		doc_string += f"\nBLURB: {results_list[i].get("body")}\n"
+	
+	
+	doc_string += "\n\n### WEB CHECKER RESPONSE ###################################################################\n"
+	doc_string += ranked_json
+	doc_string += "\n\n### WEBPAGES ###############################################################################\n"
+	doc_string += "\n### ARTICLE 1 #########################################"
+	doc_string += f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("href")}"
+	doc_string += f"\nTITLE: {results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("title")}\n\n"
+	doc_string += read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 1")-1].get("href"))
+	doc_string += "\n### ARTICLE 2 ########################################"
+	doc_string += f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("href")}"
+	doc_string += f"\nTITLE: {results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("title")}\n\n"
+	doc_string += read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 2")-1].get("href"))
+	doc_string += "\n### ARTICLE 3 ########################################"
+	doc_string += f"\nURL: {results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("href")}"
+	doc_string += f"\nTITLE: {results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("title")}\n\n"
+	doc_string += read_page_content(results_list[ranked_object.get("model ranked indices").get("rank 3")-1].get("href"))
+
+	write_search_articles_to_file(doc_string=doc_string)
+	print(doc_string)
+
+	
 	
