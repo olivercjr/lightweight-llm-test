@@ -6,7 +6,9 @@ from bs4 import BeautifulSoup
 import requests
 import json
 import re
-
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import faiss
 import os
 
 load_dotenv()
@@ -86,12 +88,6 @@ def check_web_results(raw_results: list, query: str, model_temp: float=0.6):
 	response = gemma_3_4b(prompt=prompt, max_tokens=200, stop=["<end_of_turn>"], temperature=model_temp)
 	response_str = response['choices'][0]['text']
 
-	#print(f"{prompt}\n\n######MODEL RESOPNSE##############\n{response}")
-	print("\n\n###### WEB CHECKER RESPONSE ########\n\n")
-	print(f"\n\n\n{response_str}\n\n\n")
-	# print("###### PROMPT ########\n\n")
-	# print(prompt)
-
 	return response_str
 
 def clean_string(raw_text: str):
@@ -164,7 +160,7 @@ def read_page_content(url: str):
 	junk_keywords = [
 		"sidebar", "widget", "advert", "ad-", "promo", "sponsor", "related",
 		"post-nav", "pagination", "footer", "menu", "nav", "share", "comment",
-		"header"
+		"header", "href"
 	]
 
 	for elmnt in elements:
@@ -280,4 +276,4 @@ if __name__ == "__main__":
 	print(doc_string)
 
 	
-	
+
