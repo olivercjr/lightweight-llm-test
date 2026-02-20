@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-tool-test"
+version = "0.1.0"
+description = "agentic framework that gives a local llm tool calling and internet search ability"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    "beautifulsoup4",
+    "ddgs",
+    "fake-useragent",
+    "httpx",
+    "jinja2",
+    "llama-cpp-python",
+    "lxml",
+    "networkx",
+    "python-dotenv",
+    "pyyaml",
+    "regex",
+    "requests",
+    "rich",
+    "scikit-learn",
+    "scipy",
+    "sentence-transformers",
+    "torch",
+    "tqdm",
+    "transformers",
+    "typer",
+]
